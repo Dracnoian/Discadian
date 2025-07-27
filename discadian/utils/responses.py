@@ -155,9 +155,10 @@ class ResponseManager:
     
     def build_verification_message(self, ign: str, town: str, nation: str, 
                                  link_status: str, is_mayor: bool = False, 
-                                 county: str = None, has_county: bool = True) -> str:
+                                 county: str = None, has_county: bool = True,
+                                 message_base: str = "verification.success_base") -> str:
         """Build a complete verification success message"""
-        message = self.get_message("verification.success_base", 
+        message = self.get_message(message_base, 
                                  ign=ign, town=town, nation=nation, link_status=link_status)
         
         if is_mayor:

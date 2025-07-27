@@ -18,6 +18,44 @@
       ],
       "timestamp": true
     },
+    "verification_update_success": {
+      "title": "🔄 Re-verification Successful",
+      "description": "{message}\n\n✅ User information and roles updated successfully!",
+      "color": "0x00ff00",
+      "fields": [
+        {
+          "name": "Updated User",
+          "value": "{user_mention}",
+          "inline": true
+        },
+        {
+          "name": "Updated By",
+          "value": "{admin_mention}",
+          "inline": true
+        },
+        {
+          "name": "Previous Nation",
+          "value": "{old_nation}",
+          "inline": true
+        },
+        {
+          "name": "Current Nation",
+          "value": "{new_nation}",
+          "inline": true
+        },
+        {
+          "name": "Previous Town",
+          "value": "{old_town}",
+          "inline": true
+        },
+        {
+          "name": "Current Town",
+          "value": "{new_town}",
+          "inline": true
+        }
+      ],
+      "timestamp": true
+    },
     "verification_partial": {
       "title": "⚠️ Verification Partial Success",
       "description": "{message}\n\n⚠️ Verification successful but there was an issue assigning roles/nickname.",
@@ -30,6 +68,24 @@
         },
         {
           "name": "Verified By",
+          "value": "{admin_mention}",
+          "inline": true
+        }
+      ],
+      "timestamp": true
+    },
+    "verification_update_partial": {
+      "title": "⚠️ Re-verification Partial Success",
+      "description": "{message}\n\n⚠️ Re-verification successful but there was an issue updating roles/nickname.",
+      "color": "0xffaa00",
+      "fields": [
+        {
+          "name": "Updated User",
+          "value": "{user_mention}",
+          "inline": true
+        },
+        {
+          "name": "Updated By",
           "value": "{admin_mention}",
           "inline": true
         }
@@ -208,6 +264,7 @@
   "messages": {
     "verification": {
       "success_base": "✅ **Verification Successful!**\nPlayer: `{ign}`\nTown: `{town}`\nNation: `{nation}`\nLink Status: {link_status}",
+      "update_success_base": "🔄 **Re-verification Successful!**\nPlayer: `{ign}`\nTown: `{town}`\nNation: `{nation}`\nLink Status: {link_status}",
       "success_mayor": "\n👑 Mayor Status: **Mayor of {town}**",
       "success_county": "\n🏛️ County: **{county}**",
       "success_no_county": "\n⚠️ County Status: **Town not assigned to any county**",

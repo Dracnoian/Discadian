@@ -59,8 +59,11 @@ async def get_multiple_towns_info(town_queries: List[str], use_cache: bool = Tru
     uncached_queries = []
     if use_cache:
         for query in town_queries:
-            cache_key = f"town:{query.lower()}"
-            cached_result = cache_manager.get(cache_key)
+            # Try both UUID and name-based cache keys
+            cache_key_uuid = f"town_uuid:{query}"
+            cache_key_name = f"town_name:{query.lower()}"
+            
+            cached_result = cache_manager.get(cache_key_uuid) or cache_manager.get(cache_key_name)
             if cached_result and cached_result.get("success"):
                 town_data = cached_result["data"]
                 town_identifier = town_data.get("name", query)
@@ -111,11 +114,10 @@ async def get_multiple_towns_info(town_queries: List[str], use_cache: bool = Tru
                                     result = {"success": True, "data": town_data}
                                     results[town_name] = result
                                     
-                                    # Cache the result
+                                    # Cache the result using both UUID and name
                                     if use_cache:
-                                        # Cache by both name and UUID
-                                        cache_manager.set(f"town:{town_name.lower()}", result, ttl=300)
-                                        cache_manager.set(f"town:{town_uuid}", result, ttl=300)
+                                        cache_manager.set(f"town_uuid:{town_uuid}", result, ttl=300)
+                                        cache_manager.set(f"town_name:{town_name.lower()}", result, ttl=300)
                                 else:
                                     logger.warning(f"Town data missing UUID: {town_data}")
                         
@@ -153,11 +155,12 @@ async def get_multiple_towns_info(town_queries: List[str], use_cache: bool = Tru
 
 async def get_player_info(ign: str, use_cache: bool = True) -> Dict[str, Any]:
     """Get player information from EarthMC API"""
-    cache_key = f"player:{ign.lower()}"
+    # Try to get from cache first using both IGN and UUID if we have it
+    cache_key_ign = f"player_ign:{ign.lower()}"
     
     # Try cache first
     if use_cache:
-        cached_result = cache_manager.get(cache_key)
+        cached_result = cache_manager.get(cache_key_ign)
         if cached_result:
             logger.info(f"Player info for '{ign}' found in cache")
             return cached_result
@@ -181,11 +184,13 @@ async def get_player_info(ign: str, use_cache: bool = True) -> Dict[str, Any]:
                     logger.info(f"Player API response for '{ign}': {data}")
                     if data and len(data) > 0:
                         player_data = data[0]
-                        if player_data.get("uuid"):
+                        player_uuid = player_data.get("uuid")
+                        if player_uuid:
                             result = {"success": True, "data": player_data}
-                            # Cache successful results
+                            # Cache successful results using both IGN and UUID
                             if use_cache:
-                                cache_manager.set(cache_key, result, ttl=60)  # Cache for 1 minute
+                                cache_manager.set(cache_key_ign, result, ttl=60)  # Cache for 1 minute
+                                cache_manager.set(f"player_uuid:{player_uuid}", result, ttl=60)
                             return result
                         else:
                             result = {"success": False, "error": f"Player '{ign}' found but no UUID in response"}
@@ -198,7 +203,7 @@ async def get_player_info(ign: str, use_cache: bool = True) -> Dict[str, Any]:
                 
                 # Cache failed results for shorter time to allow retries
                 if use_cache:
-                    cache_manager.set(cache_key, result, ttl=30)
+                    cache_manager.set(cache_key_ign, result, ttl=30)
                 return result
                 
     except Exception as e:
@@ -206,9 +211,67 @@ async def get_player_info(ign: str, use_cache: bool = True) -> Dict[str, Any]:
         result = {"success": False, "error": str(e)}
         return result
 
+async def get_player_info_by_uuid(player_uuid: str, use_cache: bool = True) -> Dict[str, Any]:
+    """Get player information by UUID from EarthMC API"""
+    cache_key_uuid = f"player_uuid:{player_uuid}"
+    
+    # Try cache first
+    if use_cache:
+        cached_result = cache_manager.get(cache_key_uuid)
+        if cached_result:
+            logger.info(f"Player info for UUID '{player_uuid}' found in cache")
+            return cached_result
+    
+    try:
+        payload = {
+            "query": [player_uuid],
+            "template": {
+                "name": True,
+                "uuid": True,
+                "town": True,
+                "nation": True,
+                "status": True
+            }
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(PLAYERS_API_URL, json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"Player API response for UUID '{player_uuid}': {data}")
+                    if data and len(data) > 0:
+                        player_data = data[0]
+                        if player_data.get("uuid"):
+                            result = {"success": True, "data": player_data}
+                            # Cache successful results using both UUID and IGN
+                            if use_cache:
+                                cache_manager.set(cache_key_uuid, result, ttl=60)
+                                player_ign = player_data.get("name")
+                                if player_ign:
+                                    cache_manager.set(f"player_ign:{player_ign.lower()}", result, ttl=60)
+                            return result
+                        else:
+                            result = {"success": False, "error": f"Player with UUID '{player_uuid}' found but no UUID in response"}
+                    else:
+                        result = {"success": False, "error": f"Player with UUID '{player_uuid}' not found in EarthMC database"}
+                else:
+                    response_text = await response.text()
+                    logger.error(f"Player API error {response.status}: {response_text}")
+                    result = {"success": False, "error": f"API returned status {response.status}: {response_text}"}
+                
+                # Cache failed results for shorter time to allow retries
+                if use_cache:
+                    cache_manager.set(cache_key_uuid, result, ttl=30)
+                return result
+                
+    except Exception as e:
+        logger.error(f"Exception in get_player_info_by_uuid: {e}")
+        result = {"success": False, "error": str(e)}
+        return result
+
 async def get_nation_info(nation_name: str, use_cache: bool = True) -> Dict[str, Any]:
     """Get nation information from EarthMC API"""
-    cache_key = f"nation:{nation_name.lower()}"
+    cache_key = f"nation_name:{nation_name.lower()}"
     
     # Try cache first
     if use_cache:
@@ -234,11 +297,13 @@ async def get_nation_info(nation_name: str, use_cache: bool = True) -> Dict[str,
                     logger.info(f"Nation API response for '{nation_name}': {data}")
                     if data and len(data) > 0:
                         nation_data = data[0]
-                        if nation_data.get("uuid"):
+                        nation_uuid = nation_data.get("uuid")
+                        if nation_uuid:
                             result = {"success": True, "data": nation_data}
-                            # Cache successful results
+                            # Cache successful results using both name and UUID
                             if use_cache:
                                 cache_manager.set(cache_key, result, ttl=300)  # Cache for 5 minutes
+                                cache_manager.set(f"nation_uuid:{nation_uuid}", result, ttl=300)
                             return result
                         else:
                             result = {"success": False, "error": f"Nation '{nation_name}' found but no UUID in response"}
@@ -261,11 +326,13 @@ async def get_nation_info(nation_name: str, use_cache: bool = True) -> Dict[str,
 
 async def get_town_info(town_name: str, use_cache: bool = True) -> Dict[str, Any]:
     """Get town information from EarthMC API"""
-    cache_key = f"town:{town_name.lower()}"
+    # Try both UUID and name-based cache keys
+    cache_key_name = f"town_name:{town_name.lower()}"
+    cache_key_uuid = f"town_uuid:{town_name}"  # In case town_name is actually a UUID
     
     # Try cache first
     if use_cache:
-        cached_result = cache_manager.get(cache_key)
+        cached_result = cache_manager.get(cache_key_name) or cache_manager.get(cache_key_uuid)
         if cached_result:
             logger.info(f"Town info for '{town_name}' found in cache")
             return cached_result
@@ -288,11 +355,15 @@ async def get_town_info(town_name: str, use_cache: bool = True) -> Dict[str, Any
                     logger.info(f"Town API response for '{town_name}': {data}")
                     if data and len(data) > 0:
                         town_data = data[0]
-                        if town_data.get("uuid"):
+                        town_uuid = town_data.get("uuid")
+                        actual_town_name = town_data.get("name")
+                        if town_uuid:
                             result = {"success": True, "data": town_data}
-                            # Cache successful results
+                            # Cache successful results using both name and UUID
                             if use_cache:
-                                cache_manager.set(cache_key, result, ttl=300)  # Cache for 5 minutes
+                                cache_manager.set(f"town_uuid:{town_uuid}", result, ttl=300)  # Cache for 5 minutes
+                                if actual_town_name:
+                                    cache_manager.set(f"town_name:{actual_town_name.lower()}", result, ttl=300)
                             return result
                         else:
                             result = {"success": False, "error": f"Town '{town_name}' found but no UUID in response"}
@@ -305,7 +376,7 @@ async def get_town_info(town_name: str, use_cache: bool = True) -> Dict[str, Any
                 
                 # Cache failed results for shorter time
                 if use_cache:
-                    cache_manager.set(cache_key, result, ttl=60)
+                    cache_manager.set(cache_key_name, result, ttl=60)
                 return result
                 
     except Exception as e:

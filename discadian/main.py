@@ -18,11 +18,16 @@ from verification.core import verify_player
 from api.earthmc import get_player_info, get_nation_info
 
 # Import role management
-from roles.manager import assign_roles_and_nickname, send_contradiction_report
+from roles.manager import assign_roles_and_nickname, send_contradiction_report, handle_role_updates
 
 # Import county system
 from county.system import get_county_for_town
 from county.commands import setup_county_commands
+
+# Import periodic verification
+from verification.periodic import setup_periodic_verification
+
+from discord import app_commands
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +44,9 @@ class VerificationBot(commands.Bot):
     async def setup_hook(self):
         # Setup county commands
         setup_county_commands(self)
+        
+        # Setup periodic verification
+        self.periodic_verification = setup_periodic_verification(self)
         
         # Sync slash commands
         try:
@@ -73,50 +81,109 @@ async def verify_command(interaction: discord.Interaction, member: discord.Membe
     await interaction.response.defer()
     
     try:
+        # Check if user is already verified
+        existing_verification = verification_cache.get_verified_user_by_discord_id(str(member.id))
+        is_reverification = existing_verification is not None
+        
         # Perform verification
         result = await verify_player(str(member.id), ign)
         
         if result.success:
-            # Get county role info using town UUID
-            town_uuid = None
+            # Get player info to extract UUIDs
             player_result = await get_player_info(ign)
+            town_uuid = None
+            nation_uuid = None
+            
             if player_result["success"]:
-                town_data = player_result["data"].get("town")
+                player_data = player_result["data"]
+                town_data = player_data.get("town", {})
+                nation_data = player_data.get("nation", {})
                 town_uuid = town_data.get("uuid") if town_data else None
+                nation_uuid = nation_data.get("uuid") if nation_data else None
             
-            county_name, county_role_id, has_county = get_county_for_town(result.nation, town_uuid) if town_uuid else (None, None, True)
+            # Get county role info using UUIDs when possible
+            if nation_uuid and town_uuid:
+                from county.system import get_county_for_town_uuid
+                county_name, county_role_id, has_county = get_county_for_town_uuid(nation_uuid, town_uuid)
+            else:
+                # Fallback to name-based lookup
+                county_name, county_role_id, has_county = get_county_for_town(result.nation, town_uuid) if town_uuid else (None, None, True)
             
-            # Assign roles and nickname
-            roles_assigned = await assign_roles_and_nickname(
-                member, ign, result.nation, result.is_mayor, county_name, county_role_id
-            )
+            # Handle role updates for re-verification or initial verification
+            if is_reverification:
+                roles_updated = await handle_role_updates(
+                    member, ign, result.nation, result.is_mayor, county_name, county_role_id,
+                    existing_verification
+                )
+            else:
+                roles_updated = await assign_roles_and_nickname(
+                    member, ign, result.nation, result.is_mayor, county_name, county_role_id
+                )
             
-            if roles_assigned:
-                # Save verification data to cache
+            if roles_updated:
+                # Save/update verification data in cache
                 player_result = await get_player_info(ign)
                 if player_result["success"]:
                     player_data = player_result["data"]
                     player_uuid = player_data.get("uuid")
                     
-                    verification_cache.add_verified_user(
-                        discord_id=str(member.id),
-                        discord_username=f"{member.name}#{member.discriminator}" if member.discriminator != "0" else member.name,
-                        ign=ign,
-                        player_uuid=player_uuid,
-                        nation=result.nation,
-                        town=result.town,
-                        is_mayor=result.is_mayor,
-                        county=county_name,
-                        guild_id=str(interaction.guild.id),
-                        verified_by=str(interaction.user.id)
-                    )
+                    # Extract UUIDs for town and nation
+                    town_data = player_data.get("town", {})
+                    nation_data = player_data.get("nation", {})
+                    town_uuid = town_data.get("uuid") if town_data else None
+                    nation_uuid = nation_data.get("uuid") if nation_data else None
+                    
+                    if is_reverification:
+                        # Update existing verification
+                        verification_cache.update_user_data_by_discord_id(
+                            discord_id=str(member.id),
+                            ign=ign,
+                            nation=result.nation,
+                            nation_uuid=nation_uuid,
+                            town=result.town,
+                            town_uuid=town_uuid,
+                            is_mayor=result.is_mayor,
+                            county=county_name,
+                            last_verified_by=str(interaction.user.id),
+                            last_verified_at=datetime.utcnow().timestamp()
+                        )
+                    else:
+                        # Add new verification
+                        verification_cache.add_verified_user(
+                            discord_id=str(member.id),
+                            discord_username=f"{member.name}#{member.discriminator}" if member.discriminator != "0" else member.name,
+                            ign=ign,
+                            player_uuid=player_uuid,
+                            nation=result.nation,
+                            nation_uuid=nation_uuid,
+                            town=result.town,
+                            town_uuid=town_uuid,
+                            is_mayor=result.is_mayor,
+                            county=county_name,
+                            guild_id=str(interaction.guild.id),
+                            verified_by=str(interaction.user.id)
+                        )
                 
-                embed = response_manager.create_embed(
-                    "verification_success",
-                    message=result.message,
-                    user_mention=member.mention,
-                    admin_mention=interaction.user.mention
-                )
+                # Create appropriate embed based on verification type
+                if is_reverification:
+                    embed_key = "verification_update_success"
+                    embed = response_manager.create_embed(
+                        embed_key,
+                        message=result.message,
+                        user_mention=member.mention,
+                        admin_mention=interaction.user.mention,
+                        old_nation=existing_verification.get('nation', 'Unknown'),
+                        new_nation=result.nation,
+                        old_town=existing_verification.get('town', 'Unknown'),
+                        new_town=result.town
+                    )
+                else:
+                    embed = response_manager.create_embed(
+                        "verification_success",
+                        message=result.message,
+                        user_mention=member.mention,
+                        admin_mention=interaction.user.mention
+                    )
                 
                 # Add special message for towns not in counties
                 county_system = config_manager.get("county_system", {})
@@ -133,8 +200,9 @@ async def verify_command(interaction: discord.Interaction, member: discord.Membe
                         inline=False
                     )
             else:
+                embed_key = "verification_update_partial" if is_reverification else "verification_partial"
                 embed = response_manager.create_embed(
-                    "verification_partial",
+                    embed_key,
                     message=result.message,
                     user_mention=member.mention,
                     admin_mention=interaction.user.mention
@@ -221,12 +289,20 @@ async def config_command(interaction: discord.Interaction):
     
     nickname_format = config_manager.get("nickname_format", "{ign} ({nation})")
     
+    # Revocation roles
+    revocation_roles = config_manager.get("revocation_roles", [])
+    revocation_role_names = []
+    for role_id in revocation_roles:
+        role = interaction.guild.get_role(role_id)
+        revocation_role_names.append(role.name if role else response_manager.get_formatting("role_not_found", role_id=role_id))
+    
     settings_info = (
         f"• **Verified Role:** {verified_role_name}\n"
         f"• **Mayor Role:** {mayor_role_name}\n"
         f"• **Admin Roles:** {', '.join(admin_roles)}\n"
         f"• **Contradiction Channel:** #{contradiction_channel_name}\n"
-        f"• **Nickname Format:** `{nickname_format}`"
+        f"• **Nickname Format:** `{nickname_format}`\n"
+        f"• **Revocation Roles:** {', '.join(revocation_role_names) if revocation_role_names else response_manager.get_formatting('none_configured')}"
     )
     
     embed = response_manager.create_embed(
@@ -261,7 +337,7 @@ async def verification_stats_command(interaction: discord.Interaction):
     
     embed.add_field(name="Total Verified Users", value=stats['total_verified_users'], inline=True)
     embed.add_field(name="Total Mayors", value=stats['total_mayors'], inline=True)
-    embed.add_field(name="Cache File", value=stats['cache_file'], inline=True)
+    embed.add_field(name="Cache Version", value=stats.get('cache_version', '1.0'), inline=True)
     
     # Nations breakdown
     if stats['nations']:
@@ -273,6 +349,12 @@ async def verification_stats_command(interaction: discord.Interaction):
         sorted_counties = sorted(stats['counties'].items(), key=lambda x: x[1], reverse=True)[:10]
         counties_text = "\n".join([f"• {county.replace(':', ' - ')}: {count} users" for county, count in sorted_counties])
         embed.add_field(name="🏛️ Top Counties", value=counties_text, inline=False)
+    
+    # Mapping table stats
+    mapping_stats = stats.get('mapping_tables', {})
+    if mapping_stats:
+        mapping_text = "\n".join([f"• {name}: {count} entries" for name, count in mapping_stats.items()])
+        embed.add_field(name="🗂️ Mapping Tables", value=mapping_text, inline=False)
     
     # Timestamps
     if stats.get('cache_created'):
@@ -327,11 +409,21 @@ async def lookup_verified_user_command(interaction: discord.Interaction, query: 
         
         embed.add_field(name="🏘️ Town", value=user_data.get('town', 'Unknown'), inline=True)
         
+        # Add town UUID if available
+        town_uuid = user_data.get('town_uuid')
+        if town_uuid:
+            embed.add_field(name="🏘️ Town UUID", value=f"`{town_uuid}`", inline=True)
+        
         if user_data.get('county'):
             embed.add_field(name="🏛️ County", value=user_data.get('county'), inline=True)
         
         if user_data.get('is_mayor'):
             embed.add_field(name="👑 Status", value="Mayor", inline=True)
+        
+        # Add nation UUID if available
+        nation_uuid = user_data.get('nation_uuid')
+        if nation_uuid:
+            embed.add_field(name="🏴 Nation UUID", value=f"`{nation_uuid}`", inline=False)
         
         embed.add_field(name="🆔 Player UUID", value=f"`{user_data.get('player_uuid', 'Unknown')}`", inline=False)
         
@@ -343,6 +435,15 @@ async def lookup_verified_user_command(interaction: discord.Interaction, query: 
         
         if user_data.get('verified_by'):
             embed.add_field(name="Verified By", value=f"<@{user_data.get('verified_by')}>", inline=True)
+        
+        # Re-verification details
+        last_verified_at = user_data.get('last_verified_at')
+        if last_verified_at and last_verified_at != verified_at:
+            last_verified_time = datetime.fromtimestamp(last_verified_at)
+            embed.add_field(name="🔄 Last Re-verified", value=last_verified_time.strftime("%Y-%m-%d %H:%M"), inline=True)
+        
+        if user_data.get('last_verified_by') and user_data.get('last_verified_by') != user_data.get('verified_by'):
+            embed.add_field(name="Last Verified By", value=f"<@{user_data.get('last_verified_by')}>", inline=True)
         
         embed.add_field(name="Search Type", value=search_type, inline=True)
         
@@ -645,7 +746,176 @@ async def cache_stats_command(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@bot.tree.command(name="cache_clear", description="Clear all cache entries")
+@bot.tree.command(name="periodic_verification_status", description="Show periodic verification status and statistics")
+async def periodic_verification_status_command(interaction: discord.Interaction):
+    # Check if guild is approved
+    if not is_approved_guild(interaction.guild.id):
+        return
+    
+    # Check if user has admin permission
+    if not has_admin_permission(interaction.user):
+        await interaction.response.send_message(embed=create_permission_denied_embed(), ephemeral=True)
+        return
+    
+    status = bot.periodic_verification.get_status()
+    
+    embed = discord.Embed(
+        title="🔄 Periodic Verification Status",
+        color=0x00ff00 if not status["is_running"] else 0xffaa00,
+        timestamp=discord.utils.utcnow()
+    )
+    
+    # Current state
+    state = "🔄 Running" if status["is_running"] else "⏸️ Idle"
+    embed.add_field(name="Status", value=state, inline=True)
+    
+    enabled = config_manager.get("periodic_verification_enabled", False)
+    embed.add_field(name="Enabled", value="✅ Yes" if enabled else "❌ No", inline=True)
+    
+    interval = config_manager.get("periodic_verification_interval_hours", 24)
+    embed.add_field(name="Interval", value=f"{interval} hours", inline=True)
+    
+    # Current run info (if running)
+    if status["is_running"]:
+        embed.add_field(name="Current Batch", value=f"{status['current_batch']}", inline=True)
+        embed.add_field(name="Processed", value=f"{status['processed_users']}/{status['total_users']}", inline=True)
+        embed.add_field(name="Updated", value=str(status['updated_users']), inline=True)
+    
+    # Last run statistics
+    stats = status["stats"]
+    if stats["total_runs"] > 0:
+        embed.add_field(name="Total Runs", value=str(stats['total_runs']), inline=True)
+        embed.add_field(name="Last Run Users", value=str(stats['last_run_users']), inline=True)
+        embed.add_field(name="Last Run Updates", value=str(stats['last_run_updates']), inline=True)
+        embed.add_field(name="Last Run Duration", value=f"{stats['last_run_duration']:.1f}s", inline=True)
+        embed.add_field(name="Avg Duration", value=f"{stats['average_processing_time']:.1f}s", inline=True)
+        embed.add_field(name="Last Run Failures", value=str(stats['last_run_failures']), inline=True)
+    
+    # Next run time
+    if status["last_run_time"] and enabled:
+        from datetime import datetime, timedelta
+        last_run = datetime.fromisoformat(status["last_run_time"])
+        next_run = last_run + timedelta(hours=interval)
+        embed.add_field(
+            name="Next Run", 
+            value=f"<t:{int(next_run.timestamp())}:R>", 
+            inline=False
+        )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="periodic_verification_control", description="Start or stop periodic verification")
+@app_commands.describe(action="Choose action: start, stop, enable, or disable")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Start", value="start"),
+    app_commands.Choice(name="Stop", value="stop"), 
+    app_commands.Choice(name="Enable", value="enable"),
+    app_commands.Choice(name="Disable", value="disable")
+])
+async def periodic_verification_control_command(interaction: discord.Interaction, action: app_commands.Choice[str]):
+    # Check if guild is approved
+    if not is_approved_guild(interaction.guild.id):
+        return
+    
+    # Check if user has admin permission
+    if not has_admin_permission(interaction.user):
+        await interaction.response.send_message(embed=create_permission_denied_embed(), ephemeral=True)
+        return
+    
+    if action.value.lower() not in ["start", "stop", "enable", "disable"]:
+        embed = create_error_embed(
+            "❌ Invalid Action",
+            "Action must be one of: start, stop, enable, disable"
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
+    try:
+        if action.value.lower() == "start":
+            bot.periodic_verification.start_periodic_verification()
+            config_manager.set("periodic_verification_enabled", True)
+            embed = create_success_embed(
+                "✅ Periodic Verification Started",
+                "Periodic verification has been enabled and started.",
+                interaction.user
+            )
+        
+        elif action.lower() == "stop":
+            bot.periodic_verification.stop_periodic_verification()
+            embed = create_success_embed(
+                "⏹️ Periodic Verification Stopped",
+                "Periodic verification has been stopped (but remains enabled).",
+                interaction.user
+            )
+        
+        elif action.lower() == "enable":
+            config_manager.set("periodic_verification_enabled", True)
+            bot.periodic_verification.start_periodic_verification()
+            embed = create_success_embed(
+                "✅ Periodic Verification Enabled",
+                "Periodic verification has been enabled and will start automatically.",
+                interaction.user
+            )
+        
+        elif action.lower() == "disable":
+            config_manager.set("periodic_verification_enabled", False)
+            bot.periodic_verification.stop_periodic_verification()
+            embed = create_success_embed(
+                "❌ Periodic Verification Disabled",
+                "Periodic verification has been disabled and stopped.",
+                interaction.user
+            )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in periodic verification control: {e}")
+        embed = create_error_embed(
+            "❌ Error",
+            f"Failed to {action} periodic verification: {str(e)}"
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="periodic_verification_run", description="Manually trigger a periodic verification run")
+async def periodic_verification_run_command(interaction: discord.Interaction):
+    # Check if guild is approved
+    if not is_approved_guild(interaction.guild.id):
+        return
+    
+    # Check if user has admin permission
+    if not has_admin_permission(interaction.user):
+        await interaction.response.send_message(embed=create_permission_denied_embed(), ephemeral=True)
+        return
+    
+    if bot.periodic_verification.is_running:
+        embed = create_warning_embed(
+            "⚠️ Already Running",
+            "Periodic verification is already running. Please wait for it to complete."
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Start manual run in background
+        import asyncio
+        asyncio.create_task(bot.periodic_verification.run_verification_update())
+        
+        embed = create_success_embed(
+            "🔄 Manual Run Started",
+            "Periodic verification has been manually triggered and is running in the background.",
+            interaction.user
+        )
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        logger.error(f"Error starting manual verification run: {e}")
+        embed = create_error_embed(
+            "❌ Error",
+            f"Failed to start manual verification run: {str(e)}"
+        )
+        await interaction.followup.send(embed=embed)
 async def cache_clear_command(interaction: discord.Interaction):
     # Check if guild is approved
     if not is_approved_guild(interaction.guild.id):

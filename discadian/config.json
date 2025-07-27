@@ -18,8 +18,13 @@
     ],
     "contradiction_channel_id": 1210711620699816007,
     "mayor_role_id": 1276735484613234738,
+    "revocation_roles": [
+        987654321098765433,
+        987654321098765434
+    ],
     "county_system": {
         "Cascadia": {
+            "nation_uuid": "cascadia-nation-uuid-here",
             "counties": {
                 "Prussia": {
                     "role_id": 123456789012345679,
@@ -44,5 +49,13 @@
     "api": {
         "base_url": "https://api.earthmc.net/v3/aurora",
         "cache_duration": 300
+    },
+    "periodic_verification": {
+        "enabled": false,
+        "interval_hours": 24,
+        "batch_size": 10,
+        "user_delay_seconds": 2,
+        "batch_delay_seconds": 30,
+        "report_channel_id": null
     }
 }

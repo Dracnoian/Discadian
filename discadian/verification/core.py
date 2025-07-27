@@ -5,11 +5,19 @@ from verification.results import VerificationResult
 from county.system import get_county_for_town
 from config import config_manager
 from utils.responses import response_manager
+from utils.verification_cache import verification_cache
 
 logger = logging.getLogger(__name__)
 
 async def verify_player(discord_id: str, ign: str) -> VerificationResult:
-    """Main verification logic"""
+    """Main verification logic with re-verification support"""
+    
+    # Check if this is a re-verification
+    existing_verification = verification_cache.get_verified_user_by_discord_id(discord_id)
+    is_reverification = existing_verification is not None
+    
+    if is_reverification:
+        logger.info(f"Re-verification detected for Discord ID {discord_id} (was: {existing_verification.get('ign')} -> now: {ign})")
     
     # Step 1: Get player info first to get UUID and nation data
     player_result = await get_player_info(ign)
@@ -53,6 +61,9 @@ async def verify_player(discord_id: str, ign: str) -> VerificationResult:
     # Step 5: Build success message using response manager
     link_status = "✅ Linked" if is_linked else "⚠️ Not linked"
     
+    # Use different message base for re-verification
+    message_base = "verification.update_success_base" if is_reverification else "verification.success_base"
+    
     success_message = response_manager.build_verification_message(
         ign=ign,
         town=town_name,
@@ -60,7 +71,8 @@ async def verify_player(discord_id: str, ign: str) -> VerificationResult:
         link_status=link_status,
         is_mayor=is_mayor,
         county=county_name,
-        has_county=has_county and nation_name in config_manager.get("county_system", {})
+        has_county=has_county and nation_name in config_manager.get("county_system", {}),
+        message_base=message_base
     )
     
     return VerificationResult(
