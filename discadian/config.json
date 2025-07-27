@@ -1,61 +1,113 @@
 {
-    "bot_token": "a",
-    "approved_guilds": [
-        1210707185332396143,
-        987654321098765432
-    ],
-    "approved_nations": [
-        "Cascadia"
-    ],
-    "verified_role_id": 123456789012345678,
-    "nation_roles": {
-        "Cascadia": 1398934323796639754
-    },
-    "nickname_format": "{ign} | {nation}",
-    "admin_role_ids": [
-        1398934524368257084,
-        123456789012345679
-    ],
+  "bot_token": "a",
+  "global_settings": {
     "contradiction_channel_id": 1210711620699816007,
-    "mayor_role_id": 1276735484613234738,
-    "revocation_roles": [
-        987654321098765433,
-        987654321098765434
-    ],
-    "county_system": {
-        "Cascadia": {
-            "nation_uuid": "cascadia-nation-uuid-here",
-            "counties": {
-                "Prussia": {
-                    "role_id": 123456789012345679,
-                    "towns": [
-                        "0fbaeb5b-bea0-46a1-b6fe-c2ed314ab03f",
-                        "2835f0bc-820a-4ef3-a2ba-8fdfd5d4e36b"
-                    ]
-                },
-                "Mojave": {
-                    "role_id": 1210815722842882058,
-                    "towns": [
-                        "c891767e-2992-419c-a748-7df00a25b781",
-                        "51c2dc6d-9a41-4091-a7ce-ece008c178fa",
-                        "7d8e2cd9-e65d-442d-a972-4ebb45e04ee8",
-                        "2a031750-c2aa-40cc-965b-8cf7b27fb347"
-                    ]
-                }
-            },
-            "no_county_role_id": 123456789012345680
-        }
-    },
     "api": {
-        "base_url": "https://api.earthmc.net/v3/aurora",
-        "cache_duration": 300
+      "base_url": "https://api.earthmc.net/v3/aurora",
+      "cache_duration": 300
     },
     "periodic_verification": {
-        "enabled": false,
-        "interval_hours": 24,
-        "batch_size": 10,
-        "user_delay_seconds": 2,
-        "batch_delay_seconds": 30,
-        "report_channel_id": null
+      "enabled": true,
+      "interval_hours": 24,
+      "batch_size": 10,
+      "user_delay_seconds": 2,
+      "batch_delay_seconds": 30,
+      "report_channel_id": null
     }
+  },
+  "nations": {
+    "Cascadia": {
+      "guild_id": 1210707185332396143,
+      "nation_uuid": "cascadia-nation-uuid-here",
+      "verified_role_id": 123456789012345678,
+      "admin_role_ids": [
+        1398934524368257084,
+        123456789012345679
+      ],
+      "mayor_role_id": 1276735484613234738,
+      "revocation_roles": [
+        987654321098765433,
+        987654321098765434
+      ],
+      "nickname_format": "{ign} | {nation}",
+      "contradiction_channel_id": 1210711620699816007,
+      "county_system": {
+        "enabled": true,
+        "counties": {
+          "Prussia": {
+            "role_id": 123456789012345679,
+            "towns": [
+              "0fbaeb5b-bea0-46a1-b6fe-c2ed314ab03f",
+              "2835f0bc-820a-4ef3-a2ba-8fdfd5d4e36b"
+            ]
+          },
+          "Mojave": {
+            "role_id": 1210815722842882058,
+            "towns": [
+              "c891767e-2992-419c-a748-7df00a25b781",
+              "51c2dc6d-9a41-4091-a7ce-ece008c178fa",
+              "7d8e2cd9-e65d-442d-a972-4ebb45e04ee8",
+              "2a031750-c2aa-40cc-965b-8cf7b27fb347"
+            ]
+          }
+        },
+        "no_county_role_id": 123456789012345680
+      }
+    },
+    "Austria": {
+      "guild_id": 9876543210987654321,
+      "nation_uuid": "austria-nation-uuid-here",
+      "verified_role_id": 987654321098765432,
+      "admin_role_ids": [
+        111111111111111111,
+        222222222222222222
+      ],
+      "mayor_role_id": 333333333333333333,
+      "revocation_roles": [
+        444444444444444444
+      ],
+      "nickname_format": "{ign} ({nation})",
+      "contradiction_channel_id": 555555555555555555,
+      "county_system": {
+        "enabled": false
+      }
+    },
+    "NewYork": {
+      "guild_id": 1111222233334444555,
+      "nation_uuid": "newyork-nation-uuid-here",
+      "verified_role_id": 666666666666666666,
+      "admin_role_ids": [
+        777777777777777777
+      ],
+      "mayor_role_id": 888888888888888888,
+      "revocation_roles": [],
+      "nickname_format": "[{nation}] {ign}",
+      "contradiction_channel_id": 999999999999999999,
+      "county_system": {
+        "enabled": true,
+        "counties": {
+          "Manhattan": {
+            "role_id": 101010101010101010,
+            "towns": [
+              "manhattan-town-uuid-1",
+              "manhattan-town-uuid-2"
+            ]
+          },
+          "Brooklyn": {
+            "role_id": 202020202020202020,
+            "towns": [
+              "brooklyn-town-uuid-1"
+            ]
+          }
+        },
+        "no_county_role_id": 303030303030303030
+      }
+    }
+  },
+  "cross_guild_settings": {
+    "sync_verification_status": true,
+    "sync_role_updates": true,
+    "allow_cross_nation_verification": false,
+    "verification_priority": "nation_guild_first"
+  }
 }

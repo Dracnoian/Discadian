@@ -163,8 +163,8 @@ class PeriodicVerificationManager:
         finally:
             self.is_running = False
     
-    async def update_single_user(self, player_uuid: str, user_data: Dict[str, Any]) -> bool:
-        """Update a single verified user"""
+async def update_single_user(self, player_uuid: str, user_data: Dict[str, Any]) -> bool:
+        """Update a single verified user with relationship status checking"""
         try:
             discord_id = user_data.get("discord_id")
             ign = user_data.get("ign")
@@ -211,7 +211,7 @@ class PeriodicVerificationManager:
             current_is_mayor = status_data.get("isMayor", False)
             
             # Check if still in approved nation
-            approved_nations = config_manager.get("approved_nations", [])
+            approved_nations = config_manager.get_approved_nations()
             if current_nation not in approved_nations:
                 logger.info(f"User {current_ign} is now in unapproved nation {current_nation}, revoking roles")
                 await self.handle_nation_departure(discord_id, old_nation_uuid, old_nation)
@@ -239,7 +239,9 @@ class PeriodicVerificationManager:
                 changes.append(f"Mayor: {old_is_mayor} → {current_is_mayor}")
             
             if not changes:
-                logger.debug(f"No changes detected for user {current_ign}")
+                # Even if no basic changes, check if relationship status changed across guilds
+                await self.check_and_update_relationships(discord_id, current_ign, current_nation_uuid, current_nation)
+                logger.debug(f"No changes detected for user {current_ign}, but checked relationships")
                 return False
             
             logger.info(f"Changes detected for {current_ign}: {', '.join(changes)}")
@@ -258,10 +260,10 @@ class PeriodicVerificationManager:
                 last_verified_at=time.time()
             )
             
-            # Update Discord roles if user is in guild
-            await self.update_discord_roles(
-                discord_id, current_ign, current_nation, current_is_mayor, 
-                current_county, current_county_role_id, user_data
+            # Update Discord roles if user is in guild + handle relationship changes
+            await self.update_discord_roles_and_relationships(
+                discord_id, current_ign, current_nation, current_is_mayor,
+                current_county, current_county_role_id, user_data, current_nation_uuid
             )
             
             self.updated_users += 1
@@ -270,6 +272,32 @@ class PeriodicVerificationManager:
         except Exception as e:
             logger.error(f"Error updating single user {player_uuid}: {e}")
             return False
+
+    async def check_and_update_relationships(self, discord_id: str, ign: str, nation_uuid: str, nation_name: str):
+        """Check and update relationship status across all guilds even when no basic info changed"""
+        try:
+            # Get multi-guild manager
+            mgm = get_multi_guild_manager()
+            if mgm:
+                await mgm.update_user_relationship_across_guilds(discord_id, ign, nation_uuid, nation_name)
+        except Exception as e:
+            logger.error(f"Error checking relationships for {ign}: {e}")
+
+    async def update_discord_roles_and_relationships(self, discord_id: str, ign: str, nation: str, is_mayor: bool,
+                                                   county: str, county_role_id: int, existing_verification: Dict[str, Any],
+                                                   nation_uuid: str):
+        """Update Discord roles with relationship checking"""
+        try:
+            # Update in primary guild first
+            await self.update_discord_roles(discord_id, ign, nation, is_mayor, county, county_role_id, existing_verification)
+            
+            # Update relationships across all guilds
+            mgm = get_multi_guild_manager()
+            if mgm:
+                await mgm.update_user_relationship_across_guilds(discord_id, ign, nation_uuid, nation)
+            
+        except Exception as e:
+            logger.error(f"Error updating Discord roles and relationships for {ign}: {e}")
     
     async def handle_nation_departure(self, discord_id: str, old_nation_uuid: str, old_nation: str):
         """Handle when a user leaves their nation"""

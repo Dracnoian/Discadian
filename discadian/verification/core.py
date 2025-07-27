@@ -2,15 +2,15 @@ import logging
 from api.earthmc import get_player_info
 from verification.links import verify_discord_links
 from verification.results import VerificationResult
-from county.system import get_county_for_town
+from county.system import get_county_for_town_uuid, get_county_for_town
 from config import config_manager
 from utils.responses import response_manager
 from utils.verification_cache import verification_cache
 
 logger = logging.getLogger(__name__)
 
-async def verify_player(discord_id: str, ign: str) -> VerificationResult:
-    """Main verification logic with re-verification support"""
+async def verify_player(discord_id: str, ign: str, target_nation: str = None) -> VerificationResult:
+    """Main verification logic with re-verification support and multi-guild compatibility"""
     
     # Check if this is a re-verification
     existing_verification = verification_cache.get_verified_user_by_discord_id(discord_id)
@@ -47,22 +47,45 @@ async def verify_player(discord_id: str, ign: str) -> VerificationResult:
         return VerificationResult(False, response_manager.get_message("verification.no_nation", ign=ign))
     
     nation_name = nation_data.get("name")
+    nation_uuid = nation_data.get("uuid")
     town_name = town_data.get("name") if town_data else "Unknown"
+    town_uuid = town_data.get("uuid") if town_data else None
     is_mayor = status_data.get("isMayor", False)
     
-    approved_nations = config_manager.get("approved_nations", [])
+    # Check if target nation is specified and matches
+    if target_nation and nation_name != target_nation:
+        return VerificationResult(False, f"Player `{ign}` is in nation `{nation_name}`, not `{target_nation}`.")
+    
+    # Check if nation is approved
+    approved_nations = config_manager.get_approved_nations()
     if nation_name not in approved_nations:
         return VerificationResult(False, response_manager.get_message("verification.unapproved_nation", ign=ign, nation=nation_name))
     
-    # Step 4: Check county assignment
-    town_uuid = town_data.get("uuid") if town_data else None
-    county_name, county_role_id, has_county = get_county_for_town(nation_name, town_uuid) if town_uuid else (None, None, True)
+    # Step 4: Check county assignment using multi-guild manager
+    county_name = None
+    county_role_id = None
+    has_county = True
+    
+    if town_uuid:
+        # Try UUID-based lookup first
+        if nation_uuid:
+            county_name, county_role_id, has_county = get_county_for_town_uuid(nation_uuid, town_uuid)
+        else:
+            # Fallback to name-based lookup
+            county_name, county_role_id, has_county = get_county_for_town(nation_name, town_uuid)
     
     # Step 5: Build success message using response manager
     link_status = "✅ Linked" if is_linked else "⚠️ Not linked"
     
     # Use different message base for re-verification
     message_base = "verification.update_success_base" if is_reverification else "verification.success_base"
+    
+    # Check if nation has county system enabled
+    nation_config = config_manager.get_nation_config(nation_name)
+    nation_has_county_system = False
+    if nation_config:
+        county_system = nation_config.get("county_system", {})
+        nation_has_county_system = county_system.get("enabled", False)
     
     success_message = response_manager.build_verification_message(
         ign=ign,
@@ -71,7 +94,7 @@ async def verify_player(discord_id: str, ign: str) -> VerificationResult:
         link_status=link_status,
         is_mayor=is_mayor,
         county=county_name,
-        has_county=has_county and nation_name in config_manager.get("county_system", {}),
+        has_county=has_county and nation_has_county_system,
         message_base=message_base
     )
     

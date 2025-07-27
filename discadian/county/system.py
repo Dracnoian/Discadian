@@ -1,6 +1,11 @@
 from typing import Tuple, Optional
 from config import config_manager
 
+def get_multi_guild_manager():
+    """Import function to avoid circular imports"""
+    from roles.multi_guild_manager import get_multi_guild_manager
+    return get_multi_guild_manager()
+
 async def validate_town_nation(town_uuid: str, expected_nation_uuid: str) -> Tuple[bool, str, str]:
     """
     Validate that a town belongs to the specified nation using UUIDs
@@ -51,48 +56,58 @@ def get_county_for_town_uuid(nation_uuid: str, town_uuid: str) -> Tuple[Optional
     Get county information for a town UUID in a nation UUID
     Returns: (county_name, county_role_id, has_county)
     """
-    county_system = config_manager.get("county_system", {})
-    
     # Find nation by UUID in county system
-    nation_counties = None
-    for nation_name, nation_data in county_system.items():
-        # Get nation UUID from config or lookup
-        stored_nation_uuid = nation_data.get("nation_uuid")
+    nations = config_manager.get("nations", {})
+    
+    for nation_name, nation_config in nations.items():
+        stored_nation_uuid = nation_config.get("nation_uuid")
         if stored_nation_uuid == nation_uuid:
-            nation_counties = nation_data
-            break
+            # Use multi-guild manager to get county info
+            mgm = get_multi_guild_manager()
+            if mgm:
+                return mgm.get_county_for_town_in_nation(nation_name, town_uuid)
+            
+            # Fallback to direct config access
+            county_system = nation_config.get("county_system", {})
+            if not county_system.get("enabled", False):
+                return None, None, True  # Nation doesn't use county system
+            
+            # Check if town UUID is in any county
+            for county_name, county_data in county_system.get("counties", {}).items():
+                if town_uuid in county_data.get("towns", []):
+                    return county_name, county_data.get("role_id"), True
+            
+            # Town not in any county
+            no_county_role_id = county_system.get("no_county_role_id")
+            return None, no_county_role_id, False
     
-    if not nation_counties:
-        return None, None, True  # Nation doesn't use county system
-    
-    # Check if town UUID is in any county
-    for county_name, county_data in nation_counties.get("counties", {}).items():
-        if town_uuid in county_data.get("towns", []):
-            return county_name, county_data.get("role_id"), True
-    
-    # Town not in any county
-    no_county_role_id = nation_counties.get("no_county_role_id")
-    return None, no_county_role_id, False
+    return None, None, True  # Nation not found or doesn't use county system
 
 def get_county_for_town(nation_name: str, town_uuid: str) -> Tuple[Optional[str], Optional[int], bool]:
     """
     Get county information for a town UUID in a nation (backwards compatibility)
     Returns: (county_name, county_role_id, has_county)
     """
-    county_system = config_manager.get("county_system", {})
+    mgm = get_multi_guild_manager()
+    if mgm:
+        return mgm.get_county_for_town_in_nation(nation_name, town_uuid)
     
-    if nation_name not in county_system:
+    # Fallback to direct config access
+    nation_config = config_manager.get_nation_config(nation_name)
+    if not nation_config:
         return None, None, True  # Nation doesn't use county system
     
-    nation_counties = county_system[nation_name]
+    county_system = nation_config.get("county_system", {})
+    if not county_system.get("enabled", False):
+        return None, None, True  # Nation doesn't use county system
     
     # Check if town UUID is in any county
-    for county_name, county_data in nation_counties.get("counties", {}).items():
+    for county_name, county_data in county_system.get("counties", {}).items():
         if town_uuid in county_data.get("towns", []):
             return county_name, county_data.get("role_id"), True
     
     # Town not in any county
-    no_county_role_id = nation_counties.get("no_county_role_id")
+    no_county_role_id = county_system.get("no_county_role_id")
     return None, no_county_role_id, False
 
 async def add_town_to_county_by_uuid(nation_uuid: str, county: str, town_uuid: str) -> Tuple[bool, str]:
@@ -106,52 +121,55 @@ async def add_town_to_county_by_uuid(nation_uuid: str, county: str, town_uuid: s
     if not is_valid:
         return False, f"❌ **Nation Validation Failed**: {validation_result}"
     
-    county_system = config_manager.get("county_system", {})
-    
-    # Find nation by UUID or create entry
+    # Get nation config by UUID
     nation_config = None
-    nation_key = None
+    nations = config_manager.get("nations", {})
     
-    for nation_name_key, nation_data in county_system.items():
-        stored_nation_uuid = nation_data.get("nation_uuid")
-        if stored_nation_uuid == nation_uuid:
-            nation_config = nation_data
-            nation_key = nation_name_key
+    for nation_name_key, config in nations.items():
+        if config.get("nation_uuid") == nation_uuid:
+            nation_config = config
+            nation_name = nation_name_key
             break
     
-    # If nation not found, create new entry using nation name
     if not nation_config:
-        nation_key = nation_name
-        county_system[nation_key] = {
+        # Create new nation entry
+        nation_name = nation_name or "Unknown"
+        nation_config = {
+            "guild_id": None,
             "nation_uuid": nation_uuid,
-            "counties": {}, 
-            "no_county_role_id": None
+            "verified_role_id": None,
+            "admin_role_ids": [],
+            "county_system": {
+                "enabled": True,
+                "counties": {},
+                "no_county_role_id": None
+            }
         }
-        nation_config = county_system[nation_key]
-        config_manager.set("county_system", county_system)
+        config_manager.set_nested(nation_config, "nations", nation_name)
     
     # Check if county exists
-    if county not in nation_config.get("counties", {}):
+    county_system = nation_config.get("county_system", {})
+    if county not in county_system.get("counties", {}):
         return False, f"County `{county}` does not exist in nation `{nation_name}`. Create it first."
     
     # Check if town is already in this county
-    current_towns = nation_config["counties"][county].get("towns", [])
+    current_towns = county_system["counties"][county].get("towns", [])
     if town_uuid in current_towns:
         return False, f"Town is already in county `{county}`."
     
     # Remove town from other counties in this nation if it exists
     old_county = None
-    for other_county, county_data in nation_config["counties"].items():
+    for other_county, county_data in county_system["counties"].items():
         if town_uuid in county_data.get("towns", []):
             county_data["towns"].remove(town_uuid)
             old_county = other_county
             break
     
     # Add town to county
-    nation_config["counties"][county]["towns"].append(town_uuid)
+    county_system["counties"][county]["towns"].append(town_uuid)
     
     # Save configuration
-    if config_manager.set("county_system", county_system):
+    if config_manager.set_nested(nation_config, "nations", nation_name):
         # Update verification cache if town moved counties
         if old_county:
             await update_verification_cache_county_by_uuid(nation_uuid, town_uuid, old_county, county)
@@ -185,16 +203,14 @@ def remove_town_from_county_by_uuid(nation_uuid: str, town_uuid: str) -> Tuple[b
     Remove a town UUID from its county using nation UUID
     Returns: (success, message, removed_from_county)
     """
-    county_system = config_manager.get("county_system", {})
-    
     # Find nation by UUID
     nation_config = None
     nation_name = None
+    nations = config_manager.get("nations", {})
     
-    for nation_name_key, nation_data in county_system.items():
-        stored_nation_uuid = nation_data.get("nation_uuid")
-        if stored_nation_uuid == nation_uuid:
-            nation_config = nation_data
+    for nation_name_key, config in nations.items():
+        if config.get("nation_uuid") == nation_uuid:
+            nation_config = config
             nation_name = nation_name_key
             break
     
@@ -202,8 +218,10 @@ def remove_town_from_county_by_uuid(nation_uuid: str, town_uuid: str) -> Tuple[b
         return False, f"Nation with UUID `{nation_uuid}` does not have a county system configured.", None
     
     # Find and remove town from its county
+    county_system = nation_config.get("county_system", {})
     removed_from_county = None
-    for county_name, county_data in nation_config.get("counties", {}).items():
+    
+    for county_name, county_data in county_system.get("counties", {}).items():
         if town_uuid in county_data.get("towns", []):
             county_data["towns"].remove(town_uuid)
             removed_from_county = county_name
@@ -211,7 +229,7 @@ def remove_town_from_county_by_uuid(nation_uuid: str, town_uuid: str) -> Tuple[b
     
     if removed_from_county:
         # Save configuration
-        if config_manager.set("county_system", county_system):
+        if config_manager.set_nested(nation_config, "nations", nation_name):
             # Update verification cache to remove county assignment
             import asyncio
             asyncio.create_task(update_verification_cache_county_by_uuid(nation_uuid, town_uuid, removed_from_county, None))
@@ -227,15 +245,17 @@ def remove_town_from_county(nation: str, town_uuid: str) -> Tuple[bool, str, Opt
     Remove a town UUID from its county (backwards compatibility with nation name)
     Returns: (success, message, removed_from_county)
     """
-    county_system = config_manager.get("county_system", {})
+    nation_config = config_manager.get_nation_config(nation)
     
     # Check if nation exists in county system
-    if nation not in county_system:
+    if not nation_config:
         return False, f"Nation `{nation}` does not have a county system configured.", None
+    
+    county_system = nation_config.get("county_system", {})
     
     # Find and remove town from its county
     removed_from_county = None
-    for county_name, county_data in county_system[nation].get("counties", {}).items():
+    for county_name, county_data in county_system.get("counties", {}).items():
         if town_uuid in county_data.get("towns", []):
             county_data["towns"].remove(town_uuid)
             removed_from_county = county_name
@@ -243,9 +263,9 @@ def remove_town_from_county(nation: str, town_uuid: str) -> Tuple[bool, str, Opt
     
     if removed_from_county:
         # Save configuration
-        if config_manager.set("county_system", county_system):
+        if config_manager.set_nested(county_system, "nations", nation, "county_system"):
             # Update verification cache to remove county assignment
-            nation_uuid = county_system[nation].get("nation_uuid")
+            nation_uuid = nation_config.get("nation_uuid")
             if nation_uuid:
                 import asyncio
                 asyncio.create_task(update_verification_cache_county_by_uuid(nation_uuid, town_uuid, removed_from_county, None))
@@ -261,23 +281,22 @@ def rename_county_by_uuid(nation_uuid: str, old_county_name: str, new_county_nam
     Rename a county using nation UUID and update verification cache
     Returns: (success, message, towns_count)
     """
-    county_system = config_manager.get("county_system", {})
-    
     # Find nation by UUID
     nation_config = None
     nation_name = None
+    nations = config_manager.get("nations", {})
     
-    for nation_name_key, nation_data in county_system.items():
-        stored_nation_uuid = nation_data.get("nation_uuid")
-        if stored_nation_uuid == nation_uuid:
-            nation_config = nation_data
+    for nation_name_key, config in nations.items():
+        if config.get("nation_uuid") == nation_uuid:
+            nation_config = config
             nation_name = nation_name_key
             break
     
     if not nation_config:
         return False, f"Nation with UUID `{nation_uuid}` does not have a county system configured.", 0
     
-    counties = nation_config.get("counties", {})
+    county_system = nation_config.get("county_system", {})
+    counties = county_system.get("counties", {})
     
     # Check if old county exists
     if old_county_name not in counties:
@@ -292,13 +311,12 @@ def rename_county_by_uuid(nation_uuid: str, old_county_name: str, new_county_nam
     counties[new_county_name] = county_data
     del counties[old_county_name]
     
-    # Update the county system
-    nation_config["counties"] = counties
+    county_system["counties"] = counties
     
     towns_count = len(county_data.get("towns", []))
     
     # Save configuration
-    if config_manager.set("county_system", county_system):
+    if config_manager.set_nested(nation_config, "nations", nation_name):
         # Update verification cache for all users in this county
         import asyncio
         asyncio.create_task(update_verification_cache_county_rename_by_uuid(nation_uuid, old_county_name, new_county_name))
@@ -312,13 +330,14 @@ def rename_county(nation: str, old_county_name: str, new_county_name: str) -> Tu
     Rename a county (backwards compatibility with nation name)
     Returns: (success, message, towns_count)
     """
-    county_system = config_manager.get("county_system", {})
+    nation_config = config_manager.get_nation_config(nation)
     
     # Check if nation exists in county system
-    if nation not in county_system:
+    if not nation_config:
         return False, f"Nation `{nation}` does not have a county system configured.", 0
     
-    counties = county_system[nation].get("counties", {})
+    county_system = nation_config.get("county_system", {})
+    counties = county_system.get("counties", {})
     
     # Check if old county exists
     if old_county_name not in counties:
@@ -333,15 +352,14 @@ def rename_county(nation: str, old_county_name: str, new_county_name: str) -> Tu
     counties[new_county_name] = county_data
     del counties[old_county_name]
     
-    # Update the county system
-    county_system[nation]["counties"] = counties
+    county_system["counties"] = counties
     
     towns_count = len(county_data.get("towns", []))
     
     # Save configuration
-    if config_manager.set("county_system", county_system):
+    if config_manager.set_nested(county_system, "nations", nation, "county_system"):
         # Update verification cache for all users in this county
-        nation_uuid = county_system[nation].get("nation_uuid")
+        nation_uuid = nation_config.get("nation_uuid")
         if nation_uuid:
             import asyncio
             asyncio.create_task(update_verification_cache_county_rename_by_uuid(nation_uuid, old_county_name, new_county_name))
@@ -421,11 +439,11 @@ async def update_verification_cache_county(nation: str, town_uuid: str, old_coun
     """Legacy function - tries to find nation UUID and delegate to UUID-based function"""
     try:
         # Try to get nation UUID from county system
-        county_system = config_manager.get("county_system", {})
+        nation_config = config_manager.get_nation_config(nation)
         nation_uuid = None
         
-        if nation in county_system:
-            nation_uuid = county_system[nation].get("nation_uuid")
+        if nation_config:
+            nation_uuid = nation_config.get("nation_uuid")
         
         if nation_uuid:
             await update_verification_cache_county_by_uuid(nation_uuid, town_uuid, old_county, new_county)
@@ -462,11 +480,11 @@ async def update_verification_cache_county_rename(nation: str, old_county_name: 
     """Legacy function - tries to find nation UUID and delegate to UUID-based function"""
     try:
         # Try to get nation UUID from county system
-        county_system = config_manager.get("county_system", {})
+        nation_config = config_manager.get_nation_config(nation)
         nation_uuid = None
         
-        if nation in county_system:
-            nation_uuid = county_system[nation].get("nation_uuid")
+        if nation_config:
+            nation_uuid = nation_config.get("nation_uuid")
         
         if nation_uuid:
             await update_verification_cache_county_rename_by_uuid(nation_uuid, old_county_name, new_county_name)

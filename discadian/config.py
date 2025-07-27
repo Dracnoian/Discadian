@@ -1,7 +1,7 @@
 import json
 import os
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +80,70 @@ class ConfigManager:
     def reload(self):
         """Reload configuration from file"""
         self.config = self._load_config()
+    
+    # Multi-guild specific methods
+    def get_nation_config(self, nation_name: str) -> Optional[Dict[str, Any]]:
+        """Get configuration for a specific nation"""
+        return self.get_nested("nations", nation_name)
+    
+    def get_nation_by_guild_id(self, guild_id: int) -> Optional[tuple]:
+        """Find nation by guild ID - returns (nation_name, nation_config)"""
+        nations = self.get("nations", {})
+        for nation_name, nation_config in nations.items():
+            if nation_config.get("guild_id") == guild_id:
+                return nation_name, nation_config
+        return None
+    
+    def get_all_approved_guilds(self) -> List[int]:
+        """Get all approved guild IDs from all nations"""
+        guild_ids = []
+        nations = self.get("nations", {})
+        for nation_config in nations.values():
+            guild_id = nation_config.get("guild_id")
+            if guild_id:
+                guild_ids.append(guild_id)
+        return guild_ids
+    
+    def get_approved_nations(self) -> List[str]:
+        """Get list of all approved nation names"""
+        return list(self.get("nations", {}).keys())
+    
+    def get_global_setting(self, key: str, default=None):
+        """Get a global setting"""
+        return self.get_nested("global_settings", key, default=default)
+    
+    def set_global_setting(self, key: str, value: Any) -> bool:
+        """Set a global setting"""
+        return self.set_nested(value, "global_settings", key)
+    
+    def get_cross_guild_setting(self, key: str, default=None):
+        """Get a cross-guild setting"""
+        return self.get_nested("cross_guild_settings", key, default=default)
+    
+    def set_cross_guild_setting(self, key: str, value: Any) -> bool:
+        """Set a cross-guild setting"""
+        return self.set_nested(value, "cross_guild_settings", key)
+    
+    def get_nation_setting(self, nation_name: str, key: str, default=None):
+        """Get a setting for a specific nation"""
+        return self.get_nested("nations", nation_name, key, default=default)
+    
+    def set_nation_setting(self, nation_name: str, key: str, value: Any) -> bool:
+        """Set a setting for a specific nation"""
+        return self.set_nested(value, "nations", nation_name, key)
+    
+    # Backwards compatibility methods for existing code
+    def get_approved_guilds(self) -> List[int]:
+        """Backwards compatibility - returns all approved guild IDs"""
+        return self.get_all_approved_guilds()
 
 # Create global config manager instance
 config_manager = ConfigManager()
 
 # API URLs derived from config
-API_BASE = config_manager.get_nested("api", "base_url", default="https://api.earthmc.net/v3/aurora")
+API_BASE = config_manager.get_global_setting("api", {}).get("base_url", "https://api.earthmc.net/v3/aurora")
 DISCORD_API_URL = f"{API_BASE}/discord"
 PLAYERS_API_URL = f"{API_BASE}/players"
 TOWNS_API_URL = f"{API_BASE}/towns"
 NATIONS_API_URL = f"{API_BASE}/nations"
-CACHE_DURATION = config_manager.get_nested("api", "cache_duration", default=300)
+CACHE_DURATION = config_manager.get_global_setting("api", {}).get("cache_duration", 300)
