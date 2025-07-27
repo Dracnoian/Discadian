@@ -1,0 +1,1 @@
+# Roles package for EarthMC Verification Bot

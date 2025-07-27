@@ -1,0 +1,263 @@
+{
+  "embeds": {
+    "verification_success": {
+      "title": "✅ Verification Successful",
+      "description": "{message}\n\n✅ Roles and nickname assigned successfully!",
+      "color": "0x00ff00",
+      "fields": [
+        {
+          "name": "Verified User",
+          "value": "{user_mention}",
+          "inline": true
+        },
+        {
+          "name": "Verified By",
+          "value": "{admin_mention}",
+          "inline": true
+        }
+      ],
+      "timestamp": true
+    },
+    "verification_partial": {
+      "title": "⚠️ Verification Partial Success",
+      "description": "{message}\n\n⚠️ Verification successful but there was an issue assigning roles/nickname.",
+      "color": "0xffaa00",
+      "fields": [
+        {
+          "name": "Verified User",
+          "value": "{user_mention}",
+          "inline": true
+        },
+        {
+          "name": "Verified By",
+          "value": "{admin_mention}",
+          "inline": true
+        }
+      ],
+      "timestamp": true
+    },
+    "verification_county_notice": {
+      "title": "⚠️ County Notice",
+      "description": "The town `{town}` is not currently assigned to any county in {nation}. A special 'No County' role has been assigned.",
+      "color": "0xffaa00",
+      "inline": false
+    },
+    "permission_denied": {
+      "title": "❌ Permission Denied",
+      "description": "You don't have permission to use this command.",
+      "color": "0xff0000",
+      "timestamp": false
+    },
+    "error_generic": {
+      "title": "❌ Error",
+      "description": "{message}",
+      "color": "0xff0000",
+      "timestamp": true
+    },
+    "success_generic": {
+      "title": "✅ Success",
+      "description": "{message}",
+      "color": "0x00ff00",
+      "fields": [
+        {
+          "name": "Modified By",
+          "value": "{user_mention}",
+          "inline": true,
+          "conditional": true
+        }
+      ],
+      "timestamp": true
+    },
+    "warning_generic": {
+      "title": "⚠️ Warning",
+      "description": "{message}",
+      "color": "0xffaa00",
+      "timestamp": false
+    },
+    "config_display": {
+      "title": "🔧 Bot Configuration",
+      "description": "",
+      "color": "0x2f3136",
+      "fields": [
+        {
+          "name": "📋 Approved Nations",
+          "value": "{nations_list}",
+          "inline": false
+        },
+        {
+          "name": "🎭 Nation Role Mapping",
+          "value": "{role_mappings}",
+          "inline": false
+        },
+        {
+          "name": "🏛️ County Systems",
+          "value": "{county_info}",
+          "inline": false
+        },
+        {
+          "name": "⚙️ Settings",
+          "value": "{settings_info}",
+          "inline": false
+        }
+      ],
+      "footer": {
+        "text": "Guild ID: {guild_id}"
+      },
+      "timestamp": true
+    },
+    "town_lookup_result": {
+      "title": "🏘️ Town Lookup Result",
+      "description": "**Lookup Type:** {lookup_type}",
+      "color": "0x00ff00",
+      "fields": [
+        {
+          "name": "🏷️ Town Name",
+          "value": "`{town_name}`",
+          "inline": false,
+          "conditional": "show_name"
+        },
+        {
+          "name": "🆔 Town UUID",
+          "value": "`{town_uuid}`",
+          "inline": false,
+          "conditional": "show_uuid"
+        },
+        {
+          "name": "🆔 Input UUID",
+          "value": "`{input_uuid}`",
+          "inline": false,
+          "conditional": "show_input_uuid"
+        },
+        {
+          "name": "🏷️ Input Name",
+          "value": "`{input_name}`",
+          "inline": false,
+          "conditional": "show_input_name"
+        },
+        {
+          "name": "🏷️ Exact Name",
+          "value": "`{exact_name}`",
+          "inline": false,
+          "conditional": "show_exact_name"
+        },
+        {
+          "name": "Queried By",
+          "value": "{user_mention}",
+          "inline": true
+        },
+        {
+          "name": "📋 Usage",
+          "value": "You can copy the UUID above to use in county management commands.",
+          "inline": false
+        }
+      ],
+      "timestamp": true
+    },
+    "csv_generated": {
+      "title": "✅ CSV Generated",
+      "description": "Generated CSV for nation `{nation_name}` with {towns_count} towns.",
+      "color": "0x00ff00",
+      "fields": [
+        {
+          "name": "File",
+          "value": "{filename}",
+          "inline": true
+        },
+        {
+          "name": "Towns Count",
+          "value": "{towns_count}",
+          "inline": true
+        },
+        {
+          "name": "Modified By",
+          "value": "{user_mention}",
+          "inline": true
+        }
+      ],
+      "timestamp": true
+    },
+    "cache_stats": {
+      "title": "📊 Cache Statistics",
+      "description": "",
+      "color": "0x2f3136",
+      "fields": [
+        {
+          "name": "Total Entries",
+          "value": "{total_entries}",
+          "inline": true
+        },
+        {
+          "name": "Active Entries",
+          "value": "{active_entries}",
+          "inline": true
+        },
+        {
+          "name": "Expired Entries",
+          "value": "{expired_entries}",
+          "inline": true
+        },
+        {
+          "name": "Default TTL",
+          "value": "{default_ttl} seconds",
+          "inline": true
+        }
+      ],
+      "timestamp": true
+    }
+  },
+  "messages": {
+    "verification": {
+      "success_base": "✅ **Verification Successful!**\nPlayer: `{ign}`\nTown: `{town}`\nNation: `{nation}`\nLink Status: {link_status}",
+      "success_mayor": "\n👑 Mayor Status: **Mayor of {town}**",
+      "success_county": "\n🏛️ County: **{county}**",
+      "success_no_county": "\n⚠️ County Status: **Town not assigned to any county**",
+      "contradiction_detected": "❌ **Link Contradiction Detected** - This has been reported to staff.",
+      "no_nation": "❌ The player `{ign}` is not in any nation.",
+      "unapproved_nation": "❌ The player `{ign}` is in nation `{nation}`, which is not an approved nation.",
+      "api_error": "Error getting player info: {error}"
+    },
+    "county": {
+      "town_added": "Successfully added town `{town_name}` to county `{county}` in nation `{nation}`.",
+      "town_removed": "Successfully removed town `{town_name}` from county `{county}` in nation `{nation}`.",
+      "county_renamed": "Successfully renamed county `{old_name}` to `{new_name}` in nation `{nation}`.",
+      "town_already_in_county": "Town `{town_name}` is already in county `{county}`.",
+      "town_not_in_county": "Town `{town_name}` is not currently assigned to any county in nation `{nation}`.",
+      "county_not_found": "County `{county}` does not exist in nation `{nation}`. Create it first.",
+      "county_already_exists": "County `{new_name}` already exists in nation `{nation}`.",
+      "nation_validation_failed": "❌ **Nation Validation Failed**: {error}",
+      "nation_no_county_system": "Nation `{nation}` does not have a county system configured."
+    },
+    "town_lookup": {
+      "not_found_name": "Could not find town with town name `{query}`: {error}",
+      "not_found_uuid": "Could not find town with UUID `{query}`: {error}",
+      "lookup_type_name_to_uuid": "Name → UUID",
+      "lookup_type_uuid_to_name": "UUID → Name"
+    },
+    "csv": {
+      "nation_not_found": "Could not find nation `{nation_name}`: {error}",
+      "no_towns": "Nation `{nation_name}` has no towns.",
+      "generation_error": "An unexpected error occurred while generating the CSV."
+    },
+    "cache": {
+      "cleared": "All cache entries have been cleared."
+    },
+    "errors": {
+      "verification_error": "An unexpected error occurred during verification.",
+      "town_lookup_error": "An unexpected error occurred during town lookup.",
+      "generic_error": "An unexpected error occurred."
+    }
+  },
+  "colors": {
+    "success": "0x00ff00",
+    "warning": "0xffaa00", 
+    "error": "0xff0000",
+    "info": "0x2f3136",
+    "primary": "0x3498db"
+  },
+  "formatting": {
+    "none_configured": "None configured",
+    "unknown": "Unknown",
+    "role_not_found": "Role ID: {role_id} (not found)",
+    "channel_not_found": "Channel ID: {channel_id} (not found)"
+  }
+}

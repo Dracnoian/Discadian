@@ -1,0 +1,1 @@
+# Utils package for EarthMC Verification Bot

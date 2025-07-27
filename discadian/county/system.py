@@ -1,0 +1,174 @@
+from typing import Tuple, Optional
+from config import config_manager
+
+async def validate_town_nation(town_uuid: str, expected_nation: str) -> Tuple[bool, str]:
+    """
+    Validate that a town belongs to the specified nation
+    Returns: (is_valid, actual_nation_or_error)
+    """
+    try:
+        from api.earthmc import get_town_info
+        
+        # Get town details using UUID - make sure to get nation data
+        town_result = await get_town_info(town_uuid, use_cache=False)  # Don't use cache for validation
+        
+        if not town_result["success"]:
+            return False, f"Could not validate town: {town_result['error']}"
+        
+        town_data = town_result["data"]
+        town_name = town_data.get("name", "Unknown")
+        nation_data = town_data.get("nation")
+        
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Validating town {town_name} (UUID: {town_uuid})")
+        logger.info(f"Town data keys: {list(town_data.keys())}")
+        logger.info(f"Nation data: {nation_data}")
+        
+        if not nation_data:
+            return False, f"Town '{town_name}' is not in any nation"
+        
+        actual_nation = nation_data.get("name")
+        
+        if not actual_nation:
+            return False, f"Town '{town_name}' has invalid nation data"
+        
+        if actual_nation != expected_nation:
+            return False, f"Town '{town_name}' belongs to nation '{actual_nation}', not '{expected_nation}'"
+        
+        return True, actual_nation
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Exception in validate_town_nation: {e}")
+        return False, f"Error validating town nation: {str(e)}"
+
+def get_county_for_town(nation: str, town_uuid: str) -> Tuple[Optional[str], Optional[int], bool]:
+    """
+    Get county information for a town UUID in a nation
+    Returns: (county_name, county_role_id, has_county)
+    """
+    county_system = config_manager.get("county_system", {})
+    
+    if nation not in county_system:
+        return None, None, True  # Nation doesn't use county system
+    
+    nation_counties = county_system[nation]
+    
+    # Check if town UUID is in any county
+    for county_name, county_data in nation_counties.get("counties", {}).items():
+        if town_uuid in county_data.get("towns", []):
+            return county_name, county_data.get("role_id"), True
+    
+    # Town not in any county
+    no_county_role_id = nation_counties.get("no_county_role_id")
+    return None, no_county_role_id, False
+
+async def add_town_to_county(nation: str, county: str, town_uuid: str) -> Tuple[bool, str]:
+    """
+    Add a town UUID to a county (with nation validation)
+    Returns: (success, message)
+    """
+    # First validate that the town belongs to the specified nation
+    is_valid, validation_result = await validate_town_nation(town_uuid, nation)
+    
+    if not is_valid:
+        return False, f"❌ **Nation Validation Failed**: {validation_result}"
+    
+    county_system = config_manager.get("county_system", {})
+    
+    # Check if nation exists in county system
+    if nation not in county_system:
+        county_system[nation] = {"counties": {}, "no_county_role_id": None}
+        config_manager.set("county_system", county_system)
+    
+    # Check if county exists
+    if county not in county_system[nation].get("counties", {}):
+        return False, f"County `{county}` does not exist in nation `{nation}`. Create it first."
+    
+    # Check if town is already in this county
+    current_towns = county_system[nation]["counties"][county].get("towns", [])
+    if town_uuid in current_towns:
+        return False, f"Town is already in county `{county}`."
+    
+    # Remove town from other counties in this nation if it exists
+    for other_county, county_data in county_system[nation]["counties"].items():
+        if town_uuid in county_data.get("towns", []):
+            county_data["towns"].remove(town_uuid)
+            break
+    
+    # Add town to county
+    county_system[nation]["counties"][county]["towns"].append(town_uuid)
+    
+    # Save configuration
+    if config_manager.set("county_system", county_system):
+        return True, f"✅ Successfully added town to county `{county}` in nation `{nation}`. Validated: Town belongs to {validation_result}."
+    else:
+        return False, "Failed to save configuration changes."
+
+def remove_town_from_county(nation: str, town_uuid: str) -> Tuple[bool, str, Optional[str]]:
+    """
+    Remove a town UUID from its county
+    Returns: (success, message, removed_from_county)
+    """
+    county_system = config_manager.get("county_system", {})
+    
+    # Check if nation exists in county system
+    if nation not in county_system:
+        return False, f"Nation `{nation}` does not have a county system configured.", None
+    
+    # Find and remove town from its county
+    removed_from_county = None
+    for county_name, county_data in county_system[nation].get("counties", {}).items():
+        if town_uuid in county_data.get("towns", []):
+            county_data["towns"].remove(town_uuid)
+            removed_from_county = county_name
+            break
+    
+    if removed_from_county:
+        # Save configuration
+        if config_manager.set("county_system", county_system):
+            return True, f"Successfully removed town from county `{removed_from_county}` in nation `{nation}`.", removed_from_county
+        else:
+            return False, "Failed to save configuration changes.", None
+    else:
+        return False, f"Town is not currently assigned to any county in nation `{nation}`.", None
+
+def rename_county(nation: str, old_county_name: str, new_county_name: str) -> Tuple[bool, str, int]:
+    """
+    Rename a county
+    Returns: (success, message, towns_count)
+    """
+    county_system = config_manager.get("county_system", {})
+    
+    # Check if nation exists in county system
+    if nation not in county_system:
+        return False, f"Nation `{nation}` does not have a county system configured.", 0
+    
+    counties = county_system[nation].get("counties", {})
+    
+    # Check if old county exists
+    if old_county_name not in counties:
+        return False, f"County `{old_county_name}` does not exist in nation `{nation}`.", 0
+    
+    # Check if new county name already exists
+    if new_county_name in counties:
+        return False, f"County `{new_county_name}` already exists in nation `{nation}`.", 0
+    
+    # Rename county
+    county_data = counties[old_county_name]
+    counties[new_county_name] = county_data
+    del counties[old_county_name]
+    
+    # Update the county system
+    county_system[nation]["counties"] = counties
+    
+    towns_count = len(county_data.get("towns", []))
+    
+    # Save configuration
+    if config_manager.set("county_system", county_system):
+        return True, f"Successfully renamed county `{old_county_name}` to `{new_county_name}` in nation `{nation}`.", towns_count
+    else:
+        return False, "Failed to save configuration changes.", 0

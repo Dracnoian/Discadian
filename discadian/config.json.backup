@@ -1,0 +1,47 @@
+{
+    "bot_token": "MTM5ODkyMDI4NjIwODAwMDA5Mw.GHQirv.b41Z2hKgL66Ilg1NyPh0fTH4CFswf16V7n5E8A",
+    "approved_guilds": [
+        1210707185332396143,
+        987654321098765432
+    ],
+    "approved_nations": [
+        "Cascadia"
+    ],
+    "verified_role_id": 123456789012345678,
+    "nation_roles": {
+        "Cascadia": 1398934323796639754
+    },
+    "nickname_format": "{ign} | {nation}",
+    "admin_role_ids": [
+        1398934524368257084,
+        123456789012345679
+    ],
+    "contradiction_channel_id": 1210711620699816007,
+    "mayor_role_id": 1276735484613234738,
+    "county_system": {
+        "Cascadia": {
+            "counties": {
+                "Prussia": {
+                    "role_id": 123456789012345679,
+                    "towns": [
+                        "0fbaeb5b-bea0-46a1-b6fe-c2ed314ab03f",
+                        "2835f0bc-820a-4ef3-a2ba-8fdfd5d4e36b"
+                    ]
+                },
+                "Mojave": {
+                    "role_id": 1210815722842882058,
+                    "towns": [
+                        "c891767e-2992-419c-a748-7df00a25b781",
+                        "51c2dc6d-9a41-4091-a7ce-ece008c178fa",
+                        "7d8e2cd9-e65d-442d-a972-4ebb45e04ee8"
+                    ]
+                }
+            },
+            "no_county_role_id": 123456789012345680
+        }
+    },
+    "api": {
+        "base_url": "https://api.earthmc.net/v3/aurora",
+        "cache_duration": 300
+    }
+}
