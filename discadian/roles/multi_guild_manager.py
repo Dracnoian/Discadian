@@ -54,6 +54,178 @@ class MultiGuildManager:
         """Get list of all approved nations"""
         return self.config_manager.get_approved_nations()
     
+    def determine_relationship_status(self, guild_nation: str, player_nation_uuid: str) -> str:
+        """
+        Determine the relationship status between guild nation and player nation
+        Returns: 'citizen', 'allied', or 'foreigner'
+        """
+        try:
+            guild_nation_config = self.get_nation_config(guild_nation)
+            if not guild_nation_config:
+                return 'foreigner'
+            
+            # Check if same nation
+            guild_nation_uuid = guild_nation_config.get("nation_uuid")
+            if guild_nation_uuid == player_nation_uuid:
+                return 'citizen'
+            
+            # Check if allied
+            allied_nations = guild_nation_config.get("allied_nations", [])
+            if player_nation_uuid in allied_nations:
+                return 'allied'
+            
+            # Default to foreigner
+            return 'foreigner'
+            
+        except Exception as e:
+            logger.error(f"Error determining relationship status: {e}")
+            return 'foreigner'
+
+    async def assign_roles_for_nation(self, member: discord.Member, ign: str, nation_name: str,
+                                    is_mayor: bool = False, county: str = None, 
+                                    county_role_id: int = None, player_nation_uuid: str = None,
+                                    guild_nation: str = None) -> bool:
+        """Assign roles for a specific nation with relationship support"""
+        try:
+            # Get the target nation config (where roles should be assigned)
+            target_nation = guild_nation or nation_name
+            nation_config = self.get_nation_config(target_nation)
+            if not nation_config:
+                logger.error(f"No configuration found for nation: {target_nation}")
+                return False
+            
+            guild = member.guild
+            roles_to_add = []
+            
+            # Determine relationship if we have the UUIDs
+            relationship = 'citizen'  # Default
+            if player_nation_uuid and guild_nation:
+                relationship = self.determine_relationship_status(guild_nation, player_nation_uuid)
+            
+            # Verified role (for all relationships)
+            verified_role_id = nation_config.get("verified_role_id")
+            if verified_role_id:
+                verified_role = guild.get_role(verified_role_id)
+                if verified_role and verified_role not in member.roles:
+                    roles_to_add.append(verified_role)
+            
+            # Relationship-specific roles
+            if relationship == 'citizen':
+                # Mayor role (only for citizens)
+                if is_mayor:
+                    mayor_role_id = nation_config.get("mayor_role_id")
+                    if mayor_role_id:
+                        mayor_role = guild.get_role(mayor_role_id)
+                        if mayor_role and mayor_role not in member.roles:
+                            roles_to_add.append(mayor_role)
+                
+                # County role (only for citizens)
+                if county_role_id:
+                    county_role = guild.get_role(county_role_id)
+                    if county_role and county_role not in member.roles:
+                        roles_to_add.append(county_role)
+                elif county is None:
+                    # Assign "no county" role if applicable
+                    county_system = nation_config.get("county_system", {})
+                    if county_system.get("enabled", False):
+                        no_county_role_id = county_system.get("no_county_role_id")
+                        if no_county_role_id:
+                            no_county_role = guild.get_role(no_county_role_id)
+                            if no_county_role and no_county_role not in member.roles:
+                                roles_to_add.append(no_county_role)
+                                
+            elif relationship == 'allied':
+                # Allied role
+                allied_role_id = nation_config.get("allied_role_id")
+                if allied_role_id:
+                    allied_role = guild.get_role(allied_role_id)
+                    if allied_role and allied_role not in member.roles:
+                        roles_to_add.append(allied_role)
+                        
+            elif relationship == 'foreigner':
+                # Foreigner role
+                foreigner_role_id = nation_config.get("foreigner_role_id")
+                if foreigner_role_id:
+                    foreigner_role = guild.get_role(foreigner_role_id)
+                    if foreigner_role and foreigner_role not in member.roles:
+                        roles_to_add.append(foreigner_role)
+            
+            # Add roles
+            if roles_to_add:
+                await member.add_roles(*roles_to_add, reason=f"EarthMC Verification - {nation_name} ({relationship})")
+                logger.info(f"Added {len(roles_to_add)} roles to {member.display_name} in {guild.name} as {relationship}")
+            
+            # Set nickname
+            nickname_format = nation_config.get("nickname_format", "{ign} ({nation})")
+            nickname = nickname_format.format(ign=ign, nation=nation_name)
+            try:
+                if member.nick != nickname:
+                    await member.edit(nick=nickname, reason=f"EarthMC Verification - {nation_name}")
+            except discord.Forbidden:
+                logger.warning(f"Cannot change nickname for {member.display_name} - insufficient permissions")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error assigning roles for nation {nation_name}: {e}")
+            return False
+
+    async def handle_role_updates_multi_guild(self, member: discord.Member, ign: str, new_nation: str,
+                                            is_mayor: bool = False, county: str = None,
+                                            county_role_id: int = None,
+                                            existing_verification: Dict[str, Any] = None) -> bool:
+        """Handle role updates with multi-guild support and relationship transitions"""
+        try:
+            # Get current guild's nation
+            guild_nation_data = self.get_nation_by_guild_id(member.guild.id)
+            if not guild_nation_data:
+                logger.error(f"No nation configuration found for guild {member.guild.id}")
+                return False
+            
+            guild_nation, _ = guild_nation_data
+            
+            # Get player's new nation UUID
+            from api.earthmc import get_player_info
+            player_result = await get_player_info(ign)
+            new_nation_uuid = None
+            
+            if player_result["success"]:
+                player_data = player_result["data"]
+                nation_data = player_data.get("nation", {})
+                new_nation_uuid = nation_data.get("uuid")
+            
+            # Get old relationship status
+            old_nation_uuid = existing_verification.get('nation_uuid') if existing_verification else None
+            old_relationship = self.determine_relationship_status(guild_nation, old_nation_uuid) if old_nation_uuid else 'foreigner'
+            
+            # Get new relationship status
+            new_relationship = self.determine_relationship_status(guild_nation, new_nation_uuid) if new_nation_uuid else 'foreigner'
+            
+            logger.info(f"Role update for {ign}: {old_relationship} → {new_relationship} in guild {guild_nation}")
+            
+            # Remove old relationship-specific roles if relationship changed
+            if old_relationship != new_relationship:
+                await self.remove_relationship_roles(member, guild_nation, old_relationship)
+            
+            # Assign new roles based on new relationship
+            success = await self.assign_roles_for_nation(
+                member, ign, new_nation, is_mayor, county, county_role_id,
+                new_nation_uuid, guild_nation
+            )
+            
+            # Sync across other guilds if enabled
+            if success and existing_verification:
+                old_nation = existing_verification.get('nation')
+                await self.sync_user_across_guilds(
+                    str(member.id), ign, new_nation, old_nation, is_mayor, county, county_role_id
+                )
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error handling multi-guild role updates for {ign}: {e}")
+            return False
+    
     async def assign_roles_for_nation(self, member: discord.Member, ign: str, nation_name: str,
                                     is_mayor: bool = False, county: str = None, 
                                     county_role_id: int = None) -> bool:
